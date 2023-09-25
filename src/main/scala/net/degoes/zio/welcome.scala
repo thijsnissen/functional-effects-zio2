@@ -1,6 +1,6 @@
 package net.degoes.zio
 
-object welcome {
+object welcome:
   //
   // Please join and say hello:
   //
@@ -15,4 +15,5 @@ object welcome {
   //    START :  7:00 AM
   //    LUNCH : 10:00 AM
   //    END   :  2:00 PM
-}
+
+end welcome
