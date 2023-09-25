@@ -269,7 +269,7 @@ object StmReentrantLock extends ZIOAppDefault {
    *
    * Using STM, implement a reentrant read/write lock.
    */
-  class ReentrantReadWriteLock(data: TRef[Either[ReadLock, WriteLock]]) {
+  private class ReentrantReadWriteLock(data: TRef[Either[ReadLock, WriteLock]]) {
     def writeLocks: UIO[Int] = ???
 
     def writeLocked: UIO[Boolean] = ???
@@ -283,7 +283,7 @@ object StmReentrantLock extends ZIOAppDefault {
     val write: ZIO[Scope, Nothing, Int] = ???
   }
   object ReentrantReadWriteLock {
-    def make: UIO[ReentrantReadWriteLock] = ???
+    private def make: UIO[ReentrantReadWriteLock] = ???
   }
 
   val run = ???
