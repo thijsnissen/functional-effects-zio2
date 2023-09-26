@@ -116,7 +116,7 @@ object ZIOModel:
         catch case t => Left(t)
 
     def environment[R]: ZIO[R, Nothing, ZEnvironment[R]] =
-      ZIO[R, Nothing, ZEnvironment[R]](r => Right(r)) // ???
+      ZIO[R, Nothing, ZEnvironment[R]](r => Right(r))
 
   /**
    * EXERCISE
@@ -308,7 +308,9 @@ object PromptName extends ZIOAppDefault:
    */
   val run: ZIO[Any, IOException, Unit] =
     printLine("What is your name?")
-      .flatMap(_ => readLine.flatMap(n => printLine(s"Your name is: $n")))
+      .flatMap: _ =>
+        readLine.flatMap: n =>
+          printLine(s"Your name is: $n")
 
   /**
    * EXERCISE
@@ -351,10 +353,13 @@ object ForComprehensionBackward extends ZIOAppDefault:
    * which will translate to a `map`.
    */
   val run: ZIO[Any, IOException, Unit] =
+    def checkAge(age: Int): ZIO[Any, IOException, Unit] =
+      if age < 18 then printLine("You are a kid!")
+      else printLine("You are all grown up!")
+
     printLine("How old are you?").flatMap: _ =>
       readInt.flatMap: age =>
-        if age < 18 then printLine("You are a kid!")
-        else printLine("You are all grown up!")
+        checkAge(age).map(_ => ())
 
     //for
     //  _   <- Console.printLine("How old are you?")
@@ -364,9 +369,13 @@ object ForComprehensionBackward extends ZIOAppDefault:
     //yield ()
 
 object NumberGuesser extends ZIOAppDefault:
-  def analyzeAnswer(random: Int, guess: String) =
-    if (random.toString == guess.trim) Console.printLine("You guessed correctly!")
-    else Console.printLine(s"You did not guess correctly. The answer was ${random}")
+  def analyzeAnswer(random: Int, guess: String): IO[IOException, Unit] =
+    if random.toString == guess.trim then Console.printLine("You guessed correctly!")
+    else Console.printLine(s"You did not guess correctly. The answer was $random")
+
+  def analyzeAnswer2(random: Int, guess: String): ZIO[Any, Any, Unit] =
+    if random.toString == guess.trim then Console.printLine("You guessed correctly!").orDie
+    else Console.printLine(s"You did not guess correctly. The answer was $random").orDie *> ZIO.fail(())
 
   /**
    * EXERCISE
@@ -375,12 +384,17 @@ object NumberGuesser extends ZIOAppDefault:
    * the number (using `Console.readLine`), feeding their response to `analyzeAnswer`,
    * above.
    */
-  val run: ZIO[Any, IOException, Unit] =
+  val run: ZIO[Any, Nothing, Unit] =
+    def guess(n: Int): ZIO[Any, Any, Unit] =
+      for
+        _ <- Console.printLine("Please, pick a number")
+        a <- Console.readLine
+        _ <- analyzeAnswer2(n, a)
+      yield ()
+
     for
       n <- Random.nextInt
-      _ <- Console.printLine("Please, pick a number")
-      a <- Console.readLine
-      _ <- analyzeAnswer(n, a)
+      _ <- guess(n).eventually
     yield ()
 
 object SingleSyncInterop extends ZIOAppDefault:
