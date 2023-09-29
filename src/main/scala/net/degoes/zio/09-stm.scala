@@ -2,49 +2,67 @@ package net.degoes.zio
 
 import zio.*
 
-object StmSwap extends ZIOAppDefault {
+import java.io.IOException
 
-  import zio.stm._
-
+object StmSwap extends ZIOAppDefault:
   /**
    * EXERCISE
    *
    * Demonstrate the following code does not reliably swap two values in the
    * presence of concurrency.
    */
-  def exampleRef: UIO[Int] = {
+  def exampleRef: UIO[Int] =
     def swap[A](ref1: Ref[A], ref2: Ref[A]): UIO[Unit] =
-      for {
+      for
         v1 <- ref1.get
         v2 <- ref2.get
         _  <- ref2.set(v1)
         _  <- ref1.set(v2)
-      } yield ()
+      yield ()
 
-    for {
+    for
       ref1   <- Ref.make(100)
       ref2   <- Ref.make(0)
       fiber1 <- swap(ref1, ref2).repeatN(100).fork
       fiber2 <- swap(ref2, ref1).repeatN(100).fork
       _      <- (fiber1 zip fiber2).join
       value  <- (ref1.get zipWith ref2.get)(_ + _)
-    } yield value
-  }
+    yield value
 
   /**
    * EXERCISE
    *
    * Using `STM`, implement a safe version of the swap function.
    */
-  def exampleStm: UIO[Int] = ???
+  def exampleStm: UIO[Int] =
+    // ZSTM[R, E, A]
+    //  STM[E, A]    = ZSTM[Any, E, A]
+    // USTM[A]       = ZSTM[Any, Nothing, A]
+    import zio.stm.*
 
-  val run =
+    def swap[A](ref1: TRef[A], ref2: TRef[A]): UIO[Unit] =
+      (for
+        v1 <- ref1.get
+        v2 <- ref2.get
+        _ <- ref2.set(v1)
+        _ <- ref1.set(v2)
+      yield ()).commit
+
+    for
+      ref1   <- TRef.make(100).commit
+      ref2   <- TRef.make(0).commit
+      fiber1 <- swap(ref1, ref2).repeatN(100).fork
+      fiber2 <- swap(ref2, ref1).repeatN(100).fork
+      _      <- (fiber1 zip fiber2).join
+      value  <- (ref1.get zipWith ref2.get)(_ + _).commit
+    yield value
+
+  val run: ZIO[Any, IOException, Unit] =
     exampleRef.map(_.toString).flatMap(Console.printLine(_))
-}
 
-object StmLock extends ZIOAppDefault {
+object StmLock extends ZIOAppDefault:
 
-  import zio.stm._
+  import zio.stm.*
 
   /**
    * EXERCISE
@@ -52,16 +70,22 @@ object StmLock extends ZIOAppDefault {
    * Using STM, implement a simple binary lock by implementing the creation,
    * acquisition, and release methods.
    */
-  class Lock private (tref: TRef[Boolean]) {
-    def acquire: UIO[Unit] = ???
-    def release: UIO[Unit] = ???
-  }
-  object Lock {
-    def make: UIO[Lock] = ???
-  }
+  class Lock private (tref: TRef[Boolean]):
+    def acquire: UIO[Unit] =
+      (for
+        acquired <- tref.get
+        _        <- if acquired then STM.retry else tref.set(true)
+      yield ()).commit
 
-  val run =
-    (for {
+    def release: UIO[Unit] =
+      tref.set(false).commit
+
+  object Lock:
+    def make: UIO[Lock] =
+      TRef.make(false).commit.map(tref => new Lock(tref))
+
+  val run: ZIO[Any, IOException, Unit] =
+    for
       lock <- Lock.make
       fiber1 <- ZIO
                  .acquireReleaseWith(lock.acquire)(_ => lock.release)(_ => Console.printLine("Bob  : I have the lock!"))
@@ -72,37 +96,49 @@ object StmLock extends ZIOAppDefault {
                  .repeat(Schedule.recurs(10))
                  .fork
       _ <- (fiber1 zip fiber2).join
-    } yield ())
-}
+    yield ()
 
-object StmQueue extends ZIOAppDefault {
+object StmQueue extends ZIOAppDefault:
 
-  import zio.stm._
-  import scala.collection.immutable.{ Queue => ScalaQueue }
+  import zio.stm.*
+  import scala.collection.immutable.Queue as ScalaQueue
 
   /**
    * EXERCISE
    *
    * Using STM, implement a async queue with double back-pressuring.
    */
-  class Queue[A] private (capacity: Int, queue: TRef[ScalaQueue[A]]) {
-    def take: UIO[A]           = ???
-    def offer(a: A): UIO[Unit] = ???
-  }
-  object Queue {
-    def bounded[A](capacity: Int): UIO[Queue[A]] = ???
-  }
+  class Queue[A] private (capacity: Int, queue: TRef[ScalaQueue[A]]):
+    def take: UIO[A] =
+      (for
+        option <- queue.get.map(_.dequeueOption)
+        a      <- option match
+                    case Some(h, t) => queue.set(t).as(h)
+                    case None       => STM.retry
+      yield a).commit
 
-  val run =
-    (for {
+    def offer(a: A): UIO[Unit] =
+      (for
+        size <- queue.get.map(_.size)
+        _    <- if size < capacity then queue.update(_.enqueue(a)) else STM.retry
+      yield ()).commit
+
+  object Queue:
+    def bounded[A](capacity: Int): UIO[Queue[A]] =
+      TRef
+        .make(ScalaQueue.empty[A])
+        .commit
+        .map(scalaQueue => new Queue(capacity, scalaQueue))
+
+  val run: ZIO[Any, IOException, Unit] =
+    for
       queue <- Queue.bounded[Int](10)
       _     <- ZIO.foreach(0 to 100)(i => queue.offer(i)).fork
-      _ <- ZIO.foreach(0 to 100)(
-            _ => queue.take.flatMap(i => Console.printLine(s"Got: ${i}"))
-          )
-    } yield ())
-}
+      _     <- ZIO.foreachDiscard(0 to 100):
+                 _ => queue.take.flatMap(i => Console.printLine(s"Got: $i"))
+    yield ()
 
+// TODO
 object StmLunchTime extends ZIOAppDefault {
 
   import zio.stm._
@@ -183,6 +219,7 @@ object StmLunchTime extends ZIOAppDefault {
   }
 }
 
+// TODO
 object StmPriorityQueue extends ZIOAppDefault {
 
   import zio.stm._
@@ -227,6 +264,7 @@ object StmPriorityQueue extends ZIOAppDefault {
     } yield 0)
 }
 
+// TODO
 object StmReentrantLock extends ZIOAppDefault {
 
   import zio.stm._
@@ -289,6 +327,7 @@ object StmReentrantLock extends ZIOAppDefault {
   val run = ???
 }
 
+// TODO
 object StmDiningPhilosophers extends ZIOAppDefault {
 
   import zio.stm._

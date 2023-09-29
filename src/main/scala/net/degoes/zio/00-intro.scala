@@ -1,6 +1,5 @@
 package net.degoes.zio
 
-import net.degoes.zio.ZIOModel.ZIO.succeed
 import zio.*
 
 import java.io.IOException
@@ -43,6 +42,28 @@ object MyApp:
 
     def fail(t: Throwable): Callable[Any, Throwable, Nothing] =
       Callable((_: Any) => Left(t))
+
+  enum Task[+A]:
+    case Succeed(make: () => A)
+    case FlatMap[A, B](task: Task[A], andThen: A => Task[B]) extends Task[B]
+
+  object Task:
+    def succeed[A](a: => A): Task[A] =
+      Task.Succeed(() => a)
+
+    def execute[A](task: Task[A]): A =
+      @annotation.tailrec
+      def loop(task: Task[Any], stack: List[Any => Task[Any]]): Any =
+        task match
+          case Succeed(value) =>
+            stack match
+              case Nil    => value()
+              case h :: t => loop(h(value()), t)
+
+          case FlatMap(zio, f) =>
+            loop(zio, f.asInstanceOf[Any => Task[Any]] :: stack)
+
+      loop(task.asInstanceOf[Task[Any]], Nil).asInstanceOf[A]
 
   val hi: Callable[Any, Nothing, Unit]      = Callable.succeed(println("hi"))
   val bye: Callable[Any, Nothing, Unit]     = Callable.succeed(println("bye"))

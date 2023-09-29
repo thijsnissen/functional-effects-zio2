@@ -3,7 +3,6 @@ package net.degoes.zio
 import zio.*
 
 import java.io.IOException
-import scala.runtime.Nothing$
 
 /*
  * INTRODUCTION
@@ -49,7 +48,7 @@ object ErrorRecoveryOrElse extends ZIOAppDefault:
     failed.orElse(ZIO.succeed("Success :-)"))
 
 object ErrorShortCircuit extends ZIOAppDefault:
-  val failed =
+  val failed: ZIO[Any, Serializable, Unit] =
     for
       _ <- Console.printLine("About to fail...")
       _ <- ZIO.fail("Uh oh!")
@@ -62,7 +61,7 @@ object ErrorShortCircuit extends ZIOAppDefault:
    * Using `ZIO#orElse`, compose the `failed` effect with another effect that
    * succeeds with an exit code.
    */
-  val run =
+  val run: ZIO[Any, Nothing, Any] =
     failed.orElse(ZIO.succeed(ExitCode.success))
 
 object ErrorRecoveryFold extends ZIOAppDefault:
@@ -274,7 +273,9 @@ object Sandbox extends ZIOAppDefault:
 
   val failed1: IO[String, Nothing] = ZIO.fail("Uh oh 1")
   val failed2: IO[String, Nothing] = ZIO.fail("Uh oh 2")
+  @annotation.nowarn
   val finalizer1: URIO[Any, Nothing] = ZIO.fail(new Exception("Finalizing 1!")).orDie
+  @annotation.nowarn
   val finalizer2: URIO[Any, Nothing] = ZIO.fail(new Exception("Finalizing 2!")).orDie
 
   val composed: ZIO[Any, String, Nothing] = ZIO.uninterruptible:
@@ -286,6 +287,8 @@ object Sandbox extends ZIOAppDefault:
    * Using `ZIO#sandbox`, sandbox the `composed` effect and print out the
    * resulting `Cause` value to the console using `Console.printLine`.
    */
-  val run: ZIO[Any, IO[IOException, Unit], Nothing] =
-    composed.sandbox.mapError:
-      e => Console.printLine(e)
+  val run =
+    //composed.sandbox.catchAll:
+    //  cause => ZIO.debug(cause.prettyPrint)
+    composed.catchAllCause:
+      cause => ZIO.debug(cause.prettyPrint)
