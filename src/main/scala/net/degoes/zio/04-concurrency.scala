@@ -5,8 +5,8 @@ import zio.*
 import java.io.IOException
 
 // CPU                      - Cores
-// Threads                  - Operating System
-// Threads                  - JVM (1-to-1 mappting to OS)
+// Threads                  - Operating System (many to 1 core)
+// Threads                  - JVM (1-to-1 mappting to OS threads)
 // Virtual Threads (fibers) - N fibers run on 1 thread
 
 object ForkJoin extends ZIOAppDefault:
@@ -261,7 +261,6 @@ object RefExample extends ZIOAppDefault:
       _       <- fiber.interrupt
     yield ()
 
-// TODO
 object PromiseExample extends ZIOAppDefault:
 
   /**
@@ -271,7 +270,10 @@ object PromiseExample extends ZIOAppDefault:
    * the promise with `Promise#succeed`.
    */
   def doCompute(result: Promise[Nothing, Int]): UIO[Unit] =
-    ???
+    for
+      int <- ZIO.succeed(3 * 2 * 1)
+      _   <- result.succeed(int)
+    yield ()
 
   /**
    * EXERCISE
@@ -280,12 +282,16 @@ object PromiseExample extends ZIOAppDefault:
    * that it can use, and then wait for the promise to be completed,
    * using `Promise#await`.
    */
-  lazy val waitForCompute: ZIO[Any, Nothing, Unit] = ???
+  lazy val waitForCompute: ZIO[Any, Nothing, Unit] =
+    for
+      promise <- Promise.make[Nothing, Int]
+      _       <- doCompute(promise).fork
+      _       <- promise.await
+    yield ()
 
-  val run =
+  val run: ZIO[Any, Nothing, Unit] =
     waitForCompute
 
-// TODO
 object FiberRefExample extends ZIOAppDefault:
 
   /**
@@ -297,6 +303,7 @@ object FiberRefExample extends ZIOAppDefault:
   def makeChild(ref: FiberRef[Int]): ZIO[Any, Nothing, Unit] =
     for
       _ <- ref.get.debug("child initial value")
+      _ <- ref.update(_ + 1)
       _ <- ref.get.debug("child after update")
     yield ()
 

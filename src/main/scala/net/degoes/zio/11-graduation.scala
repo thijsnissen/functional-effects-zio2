@@ -1,10 +1,12 @@
 package net.degoes.zio
 
 import zio.*
+
+import java.io.IOException
 import java.text.NumberFormat
 import java.nio.charset.StandardCharsets
 
-object Sharding extends ZIOAppDefault {
+object Sharding extends ZIOAppDefault:
 
   /**
    * EXERCISE
@@ -15,41 +17,75 @@ object Sharding extends ZIOAppDefault {
    *
    * Return the first error, or never return, if there is no error.
    */
-  def shard[R, E, A](
-    queue: Queue[A],
-    n: Int,
-    worker: A => ZIO[R, E, Unit]
-  ): ZIO[R, Nothing, E] = ???
+  def shard[R, E, A](queue: Queue[A], n: Int, worker: A => ZIO[R, E, Unit]): ZIO[R, Nothing, E] =
+    ???
 
-  val run = {
+  val run: ZIO[Any, IOException, Unit] =
     def makeWorker(ref: Ref[Int]): Int => ZIO[Any, String, Unit] =
       (work: Int) =>
-        for {
+        for
           count <- ref.get
-          _ <- if (count < 100) Console.printLine(s"Worker is processing item ${work} after ${count}").orDie
-              else ZIO.fail(s"Uh oh, failed processing ${work} after ${count}")
-          _ <- ref.update(_ + 1)
-        } yield ()
+          _     <-
+            if count < 100 then
+              Console.printLine(s"Worker is processing item $work after $count").orDie
+            else
+              ZIO.fail(s"Uh oh, failed processing $work after $count")
+          _     <- ref.update(_ + 1)
+        yield ()
 
-    (for {
+    for
       queue <- Queue.bounded[Int](100)
       ref   <- Ref.make(0)
       _     <- queue.offer(1).forever.fork
       error <- shard(queue, 10, makeWorker(ref))
-      _     <- Console.printLine(s"Failed with ${error}")
-    } yield ())
-  }
-}
+      _     <- Console.printLine(s"Failed with $error")
+    yield ()
 
-object SimpleActor extends ZIOAppDefault {
+object SimpleActor extends ZIOAppDefault:
+  def exampleQueue: ZIO[Any, Nothing, Unit] =
+    for
+      queue <- Queue.bounded[Int](100)
+      latch <- Promise.make[Nothing, Unit]
+      _     <- (ZIO.foreachDiscard(0 to 1000)((v: Int) => queue.offer(v)) *> latch.succeed(())).fork
+      _     <- queue.take.flatMap((v: Int) => Console.printLine(v * v)).forever.fork
+      _     <- latch.await
+    yield ()
 
-  import zio.stm._
+  def examplePromise: ZIO[Any, IOException, Unit] =
+    for
+      promise <- Promise.make[Nothing, String]
+      _       <- promise.succeed("Hello you!").delay(1.second).fork
+      message <- promise.await
+      _       <- Console.printLine(message)
+    yield ()
+
+  def exampleRef: ZIO[Any, IOException, Unit] =
+    for
+      ref <- Ref.make[Double](0.0)
+      _   <- ref.update(_ + 1)
+      v   <- ref.modify(oldValue => (oldValue.toString, oldValue + 1.0))
+      _   <- Console.printLine(v)
+    yield ()
+
+  import zio.stm.*
 
   sealed trait Command
   case object ReadTemperature                       extends Command
   final case class AdjustTemperature(value: Double) extends Command
 
-  type TemperatureActor = Command => Task[Double]
+  type Bundle =
+    (Command, Promise[Nothing, Double])
+
+  type TemperatureActor =
+    Command => Task[Double]
+
+  def temperatureActor(inbox: Queue[Bundle]): TemperatureActor =
+    (command: Command) =>
+      for
+        promise <- Promise.make[Nothing, Double]
+        _       <- inbox.offer((command, promise))
+        reading <- promise.await
+      yield reading
 
   /**
    * EXERCISE
@@ -57,26 +93,34 @@ object SimpleActor extends ZIOAppDefault {
    * Using ZIO Queue and Promise, implement the logic necessary to create an
    * actor as a function from `Command` to `Task[Double]`.
    */
-  def makeActor(initialTemperature: Double): UIO[TemperatureActor] = {
-    type Bundle = (Command, Promise[Nothing, Double])
+  def makeActor(initialTemperature: Double): UIO[TemperatureActor] =
+    def makeActor(actorState: Ref[Double], inbox: Queue[Bundle]) =
+      for
+        tuple  <- inbox.take
+        (command, promise) = tuple
+        value  <- command match
+          case ReadTemperature          => actorState.get
+          case AdjustTemperature(delta) => actorState.updateAndGet(_ + delta)
+        _      <- promise.succeed(value)
+      yield ()
 
-    ???
-  }
+    for
+      actorState <- Ref.make[Double](initialTemperature)
+      inbox      <- Queue.bounded[Bundle](100)
+      _          <- makeActor(actorState, inbox).forever.fork
+    yield temperatureActor(inbox)
 
-  val run = {
+  val run: ZIO[Any, Throwable, Unit] =
     val temperatures = (0 to 100).map(_.toDouble)
 
-    (for {
+    for
       actor <- makeActor(0)
-      _ <- ZIO.foreachPar(temperatures) { temp =>
-            actor(AdjustTemperature(temp))
-          }
-      temp <- actor(ReadTemperature)
-      _    <- Console.printLine(s"Final temperature is ${temp}")
-    } yield ())
-  }
-}
+      _     <- ZIO.foreachParDiscard(temperatures)(temp => actor(AdjustTemperature(temp)))
+      temp  <- actor(ReadTemperature)
+      _     <- Console.printLine(s"Final temperature is $temp")
+    yield ()
 
+// https://www.youtube.com/watch?v=08eSR0vn4Vw
 object parallel_web_crawler {
 
   import zio.Clock._
@@ -228,10 +272,10 @@ object parallel_web_crawler {
     Console.printLine("Hello World!")
 }
 
-object Hangman extends ZIOAppDefault {
+object Hangman extends ZIOAppDefault:
   import Dictionary.Dictionary
 
-  import zio.Random._
+  import zio.Random.*
   import java.io.IOException
 
   /**
@@ -240,7 +284,10 @@ object Hangman extends ZIOAppDefault {
    * Implement an effect that gets a single, lower-case character from
    * the user.
    */
-  lazy val getChoice: ZIO[Any, IOException, Char] = ???
+  lazy val getChoice: ZIO[Any, IOException, Char] =
+    Console.readLine.flatMap: i =>
+      if i.isEmpty then getChoice
+      else ZIO.succeed(i.toLowerCase.charAt(0))
 
   /**
    * EXERCISE
@@ -248,7 +295,11 @@ object Hangman extends ZIOAppDefault {
    * Implement an effect that prompts the user for their name, and
    * returns it.
    */
-  lazy val getName: ZIO[Any, IOException, String] = ???
+  lazy val getName: ZIO[Any, IOException, String] =
+    for
+      _ <- Console.printLine("What is your name?")
+      n <- Console.readLine
+    yield n
 
   /**
    * EXERCISE
@@ -256,7 +307,11 @@ object Hangman extends ZIOAppDefault {
    * Implement an effect that chooses a random word from the dictionary.
    * The dictionary is `Dictionary.Dictionary`.
    */
-  lazy val chooseWord: ZIO[Any, Nothing, String] = ???
+  lazy val chooseWord: ZIO[Any, Nothing, String] =
+    for
+      i <- Random.nextIntBetween(0, Dictionary.length)
+      w <- ZIO.succeed(Dictionary(i))
+    yield w
 
   /**
    * EXERCISE
@@ -264,10 +319,18 @@ object Hangman extends ZIOAppDefault {
    * Implement the main game loop, which gets choices from the user until
    * the game is won or lost.
    */
-  def gameLoop(oldState: State): ZIO[Any, IOException, Unit] = ???
+  def gameLoop(oldState: State): ZIO[Any, IOException, Unit] =
+    for
+      c <- getChoice
+      newState = oldState.addChar(c)
+      _ <- renderState(newState)
+      _ <- analyzeNewInput(oldState, newState, c) match
+        case GuessResult.Won  => Console.printLine("Congrats, you won!")
+        case GuessResult.Lost => Console.printLine("To bad, you lost!")
+        case GuessResult.Correct | GuessResult.Incorrect | GuessResult.Unchanged => gameLoop(oldState.addChar(c))
+    yield ()
 
-  def renderState(state: State): ZIO[Any, IOException, Unit] = {
-
+  def renderState(state: State): ZIO[Any, IOException, Unit] =
     /**
      *
      *  f     n  c  t  o
@@ -278,7 +341,7 @@ object Hangman extends ZIOAppDefault {
      */
     val word =
       state.word.toList
-        .map(c => if (state.guesses.contains(c)) s" $c " else "   ")
+        .map(c => if state.guesses.contains(c) then s" $c " else "   ")
         .mkString("")
 
     val line = List.fill(state.word.length)(" - ").mkString("")
@@ -288,53 +351,47 @@ object Hangman extends ZIOAppDefault {
     val text = word + "\n" + line + "\n\n" + guesses + "\n"
 
     Console.printLine(text)
-  }
 
-  final case class State(name: String, guesses: Set[Char], word: String) {
-    final def failures: Int = (guesses -- word.toSet).size
+  case class State(name: String, guesses: Set[Char], word: String):
+    def failures: Int =
+      (guesses -- word.toSet).size
 
-    final def playerLost: Boolean = failures > 10
+    def playerLost: Boolean =
+      failures > 10
 
-    final def playerWon: Boolean = (word.toSet -- guesses).isEmpty
+    def playerWon: Boolean =
+      (word.toSet -- guesses).isEmpty
 
-    final def addChar(char: Char): State = copy(guesses = guesses + char)
-  }
+    def addChar(char: Char): State =
+      copy(guesses = guesses + char)
 
-  sealed trait GuessResult
-  object GuessResult {
-    case object Won       extends GuessResult
-    case object Lost      extends GuessResult
-    case object Correct   extends GuessResult
-    case object Incorrect extends GuessResult
-    case object Unchanged extends GuessResult
-  }
+  enum GuessResult:
+    case Won
+    case Lost
+    case Correct
+    case Incorrect
+    case Unchanged
 
-  def analyzeNewInput(
-    oldState: State,
-    newState: State,
-    char: Char
-  ): GuessResult =
-    if (oldState.guesses.contains(char)) GuessResult.Unchanged
-    else if (newState.playerWon) GuessResult.Won
-    else if (newState.playerLost) GuessResult.Lost
-    else if (oldState.word.contains(char)) GuessResult.Correct
-    else GuessResult.Incorrect
+  def analyzeNewInput(oldState: State, newState: State, char: Char): GuessResult =
+    if      oldState.guesses.contains(char)   then GuessResult.Unchanged
+    else if newState.playerWon                then GuessResult.Won
+    else if newState.playerLost               then GuessResult.Lost
+    else if oldState.word.contains(char)      then GuessResult.Correct
+    else                                           GuessResult.Incorrect
 
   /**
    * EXERCISE
    *
    * Execute the main function and verify your program works as intended.
    */
-  val run = {
-    for {
+  val run: ZIO[Any, IOException, Unit] =
+    for
       name  <- getName
       word  <- chooseWord
       state = State(name, Set(), word)
       _     <- renderState(state)
       _     <- gameLoop(state)
-    } yield ()
-  }
-}
+    yield ()
 
 object TicTacToe extends ZIOAppDefault {
 

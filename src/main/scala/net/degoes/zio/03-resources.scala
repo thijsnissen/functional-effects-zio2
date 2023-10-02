@@ -160,7 +160,6 @@ object SourceScoped extends ZIOAppDefault:
       _     <- ZIO.foreachParDiscard(files)(Console.printLine(_))
     yield ()
 
-// TODO: Fix Stream Closed error.
 object CatIncremental extends ZIOAppDefault:
 
   import java.io.{ FileInputStream, IOException, InputStream }
@@ -184,10 +183,9 @@ object CatIncremental extends ZIOAppDefault:
    * HINT: `ZIO.acquireRelease` is the easiest way to do this!
    */
   object FileHandle:
-    final def open(file: String): ZIO[Any, IOException, FileHandle] =
+    final def open(file: String): ZIO[Any & Scope, IOException, FileHandle] =
       //ZIO.attemptBlockingIO(new FileHandle(new FileInputStream(file)))
-      ZIO.scoped:
-        ZIO.acquireRelease(ZIO.attemptBlockingIO(new FileHandle(new FileInputStream(file))))(_.close.ignore)
+      ZIO.acquireRelease(ZIO.attemptBlockingIO(new FileHandle(new FileInputStream(file))))(_.close.ignore)
 
   /**
    * EXERCISE
@@ -197,8 +195,10 @@ object CatIncremental extends ZIOAppDefault:
    */
   def cat(fh: FileHandle): ZIO[Any, IOException, Unit] =
     for
-      chunck <- fh.read
-      _      <- Console.printLine(fh)
+      Option <- fh.read
+      _      <- Option match
+        case None        => ZIO.unit
+        case Some(chunk) => Console.printLine(new String(chunk.toArray, StandardCharsets.UTF_8))
     yield ()
 
   /**
@@ -209,7 +209,7 @@ object CatIncremental extends ZIOAppDefault:
    * event of error or interruption.
    */
   val run: ZIO[ZIOAppArgs with Scope, IOException, Unit] =
-    getArgs.map(_.toList).flatMap {
+    getArgs.map(_.toList).flatMap:
       case file :: Nil =>
         /**
          * EXERCISE
@@ -223,9 +223,7 @@ object CatIncremental extends ZIOAppDefault:
         yield ()
 
       case _ => Console.printLine("Usage: cat <file>")
-    }
 
-// TODO
 object AddFinalizer extends ZIOAppDefault:
 
   /**
@@ -237,7 +235,11 @@ object AddFinalizer extends ZIOAppDefault:
    * but it should be safe in the presence of errors.
    */
   def acquireRelease[R, E, A](acquire: ZIO[R, E, A])(release: A => ZIO[R, Nothing, Any]): ZIO[R with Scope, E, A] =
-    ???
+    ZIO.scoped:
+      for
+        a <- acquire
+        _ <- ZIO.addFinalizer(release(a))
+      yield a
 
   val run: ZIO[Scope, Serializable, Unit] =
     for

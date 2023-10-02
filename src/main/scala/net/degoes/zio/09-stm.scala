@@ -1,5 +1,6 @@
 package net.degoes.zio
 
+import net.degoes.zio.StmLunchTime.Attendee.State.Starving
 import zio.*
 
 import java.io.IOException
@@ -138,57 +139,73 @@ object StmQueue extends ZIOAppDefault:
                  _ => queue.take.flatMap(i => Console.printLine(s"Got: $i"))
     yield ()
 
-// TODO
-object StmLunchTime extends ZIOAppDefault {
+object StmLunchTime extends ZIOAppDefault:
 
-  import zio.stm._
+  import zio.stm.*
 
   /**
    * EXERCISE
    *
    * Using STM, implement the missing methods of Attendee.
    */
-  final case class Attendee(state: TRef[Attendee.State]) {
-    import Attendee.State._
+  final case class Attendee(state: TRef[Attendee.State]):
+    import Attendee.State.*
 
-    def isStarving: STM[Nothing, Boolean] = ???
+    def isStarving: STM[Nothing, Boolean] =
+      for
+        a <- state.get
+        b <- a match
+          case Starving => STM.succeed(true)
+          case Full     => STM.succeed(false)
+      yield b
 
-    def feed: STM[Nothing, Unit] = ???
-  }
-  object Attendee {
-    sealed trait State
-    object State {
-      case object Starving extends State
-      case object Full     extends State
-    }
-  }
+    def feed: STM[Nothing, Unit] =
+      for
+        a    <- state.get
+        bool <- isStarving
+        _    <- if bool then state.set(Full) else STM.unit
+      yield ()
+
+  object Attendee:
+    enum State:
+      case Starving
+      case Full
 
   /**
    * EXERCISE
    *
    * Using STM, implement the missing methods of Table.
    */
-  final case class Table(seats: TArray[Boolean]) {
+  final case class Table(seats: TArray[Boolean]):
     def findEmptySeat: STM[Nothing, Option[Int]] =
       seats
-        .fold[(Int, Option[Int])]((0, None)) {
+        .fold[(Int, Option[Int])]((0, None)):
           case ((index, z @ Some(_)), _) => (index + 1, z)
           case ((index, None), taken) =>
             (index + 1, if (taken) None else Some(index))
-        }
         .map(_._2)
 
-    def takeSeat(index: Int): STM[Nothing, Unit] = ???
+    def takeSeat(index: Int): STM[Nothing, Unit] =
+      seats.update(index, _ => true)
 
-    def vacateSeat(index: Int): STM[Nothing, Unit] = ???
-  }
+    def vacateSeat(index: Int): STM[Nothing, Unit] =
+      seats.update(index, _ => false)
 
   /**
    * EXERCISE
    *
    * Using STM, implement a method that feeds a single attendee.
    */
-  def feedAttendee(t: Table, a: Attendee): STM[Nothing, Unit] = ???
+  def feedAttendee(t: Table, a: Attendee): STM[Nothing, Unit] =
+    for
+      seat <- t.findEmptySeat
+      no   <- seat match
+        case Some(i) => STM.succeed(i)
+        case None    => STM.retry
+      _    <- t.takeSeat(no)
+      _    <- a.feed
+      _    <- t.vacateSeat(no)
+    yield ()
 
   /**
    * EXERCISE
@@ -196,33 +213,34 @@ object StmLunchTime extends ZIOAppDefault {
    * Using STM, implement a method that feeds only the starving attendees.
    */
   def feedStarving(table: Table, attendees: Iterable[Attendee]): UIO[Unit] =
-    ???
+    for
+      at <- ZIO.filter(attendees)(a => ZIO.succeed(a == Starving))
+      _  <- ZIO.foreachDiscard(at)(a => feedAttendee(table, a).commit)
+    yield ()
 
-  val run = {
+  val run: ZIO[Any, Any, ExitCode] =
     val Attendees = 100
     val TableSize = 5
 
-    for {
-      attendees <- ZIO.foreach(0 to Attendees)(
-                    i =>
-                      TRef
-                        .make[Attendee.State](Attendee.State.Starving)
-                        .map(Attendee(_))
-                        .commit
-                  )
-      table <- TArray
-                .fromIterable(List.fill(TableSize)(false))
-                .map(Table(_))
-                .commit
+    for
+      attendees <-
+        ZIO.foreach(0 to Attendees):
+          i =>
+            TRef
+              .make[Attendee.State](Attendee.State.Starving)
+              .map(Attendee(_))
+              .commit
+      table <-
+        TArray
+          .fromIterable(List.fill(TableSize)(false))
+          .map(a => Table(a))
+          .commit
       _ <- feedStarving(table, attendees)
-    } yield ExitCode.success
-  }
-}
+    yield ExitCode.success
 
 // TODO
-object StmPriorityQueue extends ZIOAppDefault {
-
-  import zio.stm._
+object StmPriorityQueue extends ZIOAppDefault:
+  import zio.stm.*
 
   /**
    * EXERCISE
@@ -230,39 +248,40 @@ object StmPriorityQueue extends ZIOAppDefault {
    * Using STM, design a priority queue, where smaller integers are assumed
    * to have higher priority than greater integers.
    */
-  class PriorityQueue[A] private (
-    minLevel: TRef[Option[Int]],
-    map: TMap[Int, TQueue[A]]
-  ) {
-    def offer(a: A, priority: Int): STM[Nothing, Unit] = ???
+  class PriorityQueue[A] private (minLevel: TRef[Option[Int]], map: TMap[Int, TQueue[A]]):
+    def offer(a: A, priority: Int): STM[Nothing, Unit] =
+      ???
 
-    def take: STM[Nothing, A] = ???
-  }
-  object PriorityQueue {
-    def make[A]: STM[Nothing, PriorityQueue[A]] = ???
-  }
+    def take: STM[Nothing, A] =
+      ???
 
-  val run =
-    (for {
+  object PriorityQueue:
+    def make[A]: STM[Nothing, PriorityQueue[A]] =
+      ???
+
+  val run: ZIO[Any, IOException, Int] =
+    for
       _     <- Console.printLine("Enter any key to exit...")
       queue <- PriorityQueue.make[String].commit
-      lowPriority = ZIO.foreach(0 to 100) { i =>
-        ZIO.sleep(1.millis) *> queue
-          .offer(s"Offer: ${i} with priority 3", 3)
-          .commit
-      }
-      highPriority = ZIO.foreach(0 to 100) { i =>
-        ZIO.sleep(2.millis) *> queue
-          .offer(s"Offer: ${i} with priority 0", 0)
-          .commit
-      }
+
+      lowPriority = ZIO.foreach(0 to 100):
+        i =>
+          queue
+            .offer(s"Offer: $i with priority 3", 3)
+            .commit.delay(1.millis)
+
+      highPriority = ZIO.foreach(0 to 100):
+        i =>
+          queue
+            .offer(s"Offer: $i with priority 0", 0)
+            .commit.delay(2.millis)
+
       _ <- ZIO.forkAll(List(lowPriority, highPriority)) *> queue.take.commit
             .flatMap(Console.printLine(_))
             .forever
             .fork *>
             Console.readLine
-    } yield 0)
-}
+    yield 0
 
 // TODO
 object StmReentrantLock extends ZIOAppDefault {
@@ -327,14 +346,13 @@ object StmReentrantLock extends ZIOAppDefault {
   val run = ???
 }
 
-// TODO
-object StmDiningPhilosophers extends ZIOAppDefault {
+object StmDiningPhilosophers extends ZIOAppDefault:
 
   import zio.stm._
   import java.io.IOException
 
   sealed trait Fork
-  val Fork = new Fork {}
+  val Fork: Fork = new Fork {}
 
   final case class Placement(
     left: TRef[Option[Fork]],
@@ -353,61 +371,65 @@ object StmDiningPhilosophers extends ZIOAppDefault {
     left: TRef[Option[Fork]],
     right: TRef[Option[Fork]]
   ): STM[Nothing, (Fork, Fork)] =
-    ???
+    for
+      leftFork <- left.get.collect:
+        case Some(fork) => fork
+      rightFork <- right.get.collect:
+        case Some(fork) => fork
+    yield (leftFork, rightFork)
 
   /**
    * EXERCISE
    *
    * Using STM, implement the logic of a philosopher to release both forks.
    */
-  def putForks(left: TRef[Option[Fork]], right: TRef[Option[Fork]])(
+  def putForks(
+    left: TRef[Option[Fork]],
+    right: TRef[Option[Fork]]
+  )(
     tuple: (Fork, Fork)
-  ): STM[Nothing, Unit] = ???
+  ): STM[Nothing, Unit] =
+    val (leftFork, rightFork) = tuple
 
-  def setupTable(size: Int): ZIO[Any, Nothing, Roundtable] = {
+    left.set(Some(leftFork)) *> right.set(Some(rightFork))
+
+  def setupTable(size: Int): ZIO[Any, Nothing, Roundtable] =
     val makeFork = TRef.make[Option[Fork]](Some(Fork))
 
-    (for {
-      allForks0 <- STM.foreach(0 to size) { i =>
-                    makeFork
-                  }
-      allForks = allForks0 ++ List(allForks0(0))
-      placements = (allForks zip allForks.drop(1)).map {
+    (for
+      allForks0 <- STM.foreach(0 to size):
+        _ => makeFork
+      allForks = allForks0 ++ List(allForks0.head)
+      placements = (allForks zip allForks.drop(1)).map:
         case (l, r) => Placement(l, r)
-      }
-    } yield Roundtable(placements.toVector)).commit
-  }
+    yield Roundtable(placements.toVector)).commit
 
   def eat(
     philosopher: Int,
     roundtable: Roundtable
-  ): ZIO[Any, IOException, Unit] = {
+  ): ZIO[Any, IOException, Unit] =
     val placement = roundtable.seats(philosopher)
 
     val left  = placement.left
     val right = placement.right
 
-    for {
+    for
       forks <- takeForks(left, right).commit
-      _     <- Console.printLine(s"Philosopher ${philosopher} eating...")
+      _     <- Console.printLine(s"Philosopher $philosopher eating...")
       _     <- putForks(left, right)(forks).commit
-      _     <- Console.printLine(s"Philosopher ${philosopher} is done eating")
-    } yield ()
-  }
+      _     <- Console.printLine(s"Philosopher $philosopher is done eating")
+    yield ()
 
-  val run = {
+  val run: ZIO[Any, IOException, Unit] =
     val count = 10
 
     def eaters(table: Roundtable): Iterable[ZIO[Any, IOException, Unit]] =
-      (0 to count).map { index =>
-        eat(index, table)
-      }
+      (0 to count).map:
+        index => eat(index, table)
 
-    (for {
+    for
       table <- setupTable(count)
       fiber <- ZIO.forkAll(eaters(table))
       _     <- fiber.join
       _     <- Console.printLine("All philosophers have eaten!")
-    } yield ())
-  }
-}
+    yield ()
