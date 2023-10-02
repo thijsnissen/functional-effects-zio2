@@ -16,7 +16,7 @@ ThisBuild / libraryDependencies ++= Seq(
 	"dev.zio" %% "zio-test"     % ZIOVersion % "test",
 	"dev.zio" %% "zio-test-sbt" % ZIOVersion % "test",
 	// URL parsing
-	"io.lemonlabs" %% "scala-uri" % "4.0.2"
+	"io.lemonlabs" %% "scala-uri" % "4.0.3"
 )
 
 ThisBuild / scalacOptions ++= Seq(
